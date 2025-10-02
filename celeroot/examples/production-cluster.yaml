@@ -1,0 +1,210 @@
+apiVersion: celeroot.io/v1
+kind: Cluster
+metadata:
+  name: production
+  version: "1.0"
+  labels:
+    environment: production
+    tier: infrastructure
+
+spec:
+  # Redis cluster configuration
+  redis:
+    replicas: 3
+    memory: "2Gi"
+    persistence: true
+    backup:
+      enabled: true
+      schedule: "0 4 * * *"
+
+  # Worker node definitions
+  workers:
+    # Web server workers
+    - name: webservers
+      role: webserver
+      replicas: 3
+      selector:
+        labels:
+          tier: web
+          environment: production
+      queues:
+        - webserver_tasks
+        - system_tasks
+      tasks:
+        - apt-management
+        - nginx-config
+        - ssl-management
+      resources:
+        memory: "1Gi"
+        cpu: "500m"
+
+    # Database workers
+    - name: databases
+      role: database
+      replicas: 2
+      selector:
+        labels:
+          tier: data
+          environment: production
+      queues:
+        - database_tasks
+        - system_tasks
+      tasks:
+        - apt-management
+        - mysql-management
+        - backup-tasks
+      resources:
+        memory: "2Gi"
+        cpu: "1000m"
+
+    # Application workers
+    - name: appservers
+      role: application
+      replicas: 4
+      selector:
+        labels:
+          tier: app
+          environment: production
+      queues:
+        - application_tasks
+        - system_tasks
+      tasks:
+        - apt-management
+        - app-deployment
+        - log-management
+
+    # Scheduler worker (handles cron-like tasks)
+    - name: schedulers
+      role: scheduler
+      replicas: 1  # Only one active scheduler
+      selector:
+        labels:
+          tier: control
+          role: scheduler
+      queues:
+        - scheduler_tasks
+      tasks:
+        - schedule-management
+        - cron-execution
+      leader_election: true  # Ensures only one scheduler is active
+
+  # Scheduled tasks (replaces Celery Beat)
+  schedules:
+    # Security updates - daily at 2 AM
+    - name: security-updates
+      cron: "0 2 * * *"
+      task: check-security-updates
+      targets:
+        - selector:
+            labels:
+              tier: web
+        - selector:
+            labels:
+              tier: data
+        - selector:
+            labels:
+              tier: app
+      params:
+        update_cache: true
+        auto_install: false
+
+    # System cleanup - weekly on Sunday at 3 AM
+    - name: system-cleanup
+      cron: "0 3 * * 0"
+      task: cleanup-unused-packages
+      targets:
+        - selector:
+            labels:
+              environment: production
+      params:
+        remove_orphans: true
+        clear_cache: true
+
+    # Database backups - daily at 1 AM
+    - name: database-backup
+      cron: "0 1 * * *"
+      task: backup-databases
+      targets:
+        - selector:
+            labels:
+              tier: data
+      params:
+        compress: true
+        retention_days: 30
+
+    # Health check - every 15 minutes
+    - name: health-check
+      cron: "*/15 * * * *"
+      task: system-health-check
+      targets:
+        - selector:
+            labels:
+              environment: production
+      params:
+        check_disk: true
+        check_memory: true
+        check_services: true
+
+    # SSL certificate renewal - daily at 4 AM
+    - name: ssl-renewal
+      cron: "0 4 * * *"
+      task: renew-ssl-certificates
+      targets:
+        - selector:
+            labels:
+              tier: web
+      params:
+        dry_run: false
+        notify_expiry: 30
+
+  # Task routing configuration
+  routing:
+    default_queue: system_tasks
+
+    routes:
+      # Web server specific tasks
+      - pattern: "webserver.*"
+        queue: webserver_tasks
+
+      # Database specific tasks
+      - pattern: "database.*"
+        queue: database_tasks
+
+      # Application specific tasks
+      - pattern: "app.*"
+        queue: application_tasks
+
+      # Scheduled tasks go to scheduler queue
+      - pattern: "schedule.*"
+        queue: scheduler_tasks
+
+  # Monitoring and alerting
+  monitoring:
+    metrics:
+      enabled: true
+      port: 9090
+
+    alerts:
+      - name: worker-down
+        condition: "worker_count < expected_count"
+        action: "restart"
+
+      - name: high-queue-size
+        condition: "queue_size > 1000"
+        action: "scale_workers"
+
+  # Security configuration
+  security:
+    tls:
+      enabled: true
+      cert_path: "/etc/ssl/certs"
+
+    rbac:
+      enabled: true
+      roles:
+        - name: admin
+          permissions: ["*"]
+        - name: operator
+          permissions: ["read", "execute"]
+        - name: readonly
+          permissions: ["read"]

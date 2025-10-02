@@ -1,0 +1,127 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - celeroot
+
+  # First worker simulating webserver01
+  worker1:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - .:/app
+      - worker1_apt:/var/lib/apt
+      - worker1_cache:/var/cache/apt
+    networks:
+      - celeroot
+    hostname: webserver01
+    command: uv run celery -A celeroot.config.celery_app worker --loglevel=info --hostname=worker1@webserver01
+
+  # Second worker simulating dbserver01
+  worker2:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - .:/app
+      - worker2_apt:/var/lib/apt
+      - worker2_cache:/var/cache/apt
+    networks:
+      - celeroot
+    hostname: dbserver01
+    command: uv run celery -A celeroot.config.celery_app worker --loglevel=info --hostname=worker2@dbserver01
+
+  # Third worker simulating appserver01
+  worker3:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - .:/app
+      - worker3_apt:/var/lib/apt
+      - worker3_cache:/var/cache/apt
+    networks:
+      - celeroot
+    hostname: appserver01
+    command: uv run celery -A celeroot.config.celery_app worker --loglevel=info --hostname=worker3@appserver01
+
+  # Redis monitor for debugging
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - celeroot
+
+  # Celery Beat scheduler for automated tasks
+  beat:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - .:/app
+      - beat_schedule:/app/beat-data
+    networks:
+      - celeroot
+    hostname: beat-scheduler
+    command: uv run celery -A celeroot.config.celery_app beat --loglevel=info --schedule=/app/beat-data/celerybeat-schedule
+
+  # Development container for running tasks
+  dev:
+    build: .
+    depends_on:
+      - redis
+      - worker1
+      - worker2
+      - worker3
+      - beat
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - .:/app
+    networks:
+      - celeroot
+    hostname: dev-client
+    command: tail -f /dev/null  # Keep container running for interactive use
+
+volumes:
+  redis_data:
+  beat_schedule:
+  worker1_apt:
+  worker1_cache:
+  worker2_apt:
+  worker2_cache:
+  worker3_apt:
+  worker3_cache:
+
+networks:
+  celeroot:
+    driver: bridge

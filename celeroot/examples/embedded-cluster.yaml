@@ -1,0 +1,72 @@
+apiVersion: celeroot.io/v1
+kind: Cluster
+metadata:
+  name: embedded-scheduling
+  version: "1.0"
+  description: "Cluster with embedded scheduling in workers"
+
+spec:
+  redis:
+    replicas: 1
+    persistence: true
+
+  workers:
+    - name: webservers
+      role: webserver
+      replicas: 1
+      labels:
+        tier: web
+        environment: development
+      tasks:
+        - apt-management
+        - nginx-config
+
+    - name: databases
+      role: database
+      replicas: 1
+      labels:
+        tier: data
+        environment: development
+      tasks:
+        - apt-management
+        - mysql-management
+
+    - name: applications
+      role: application
+      replicas: 1
+      labels:
+        tier: app
+        environment: development
+      tasks:
+        - apt-management
+        - app-deployment
+
+  # Schedules executed by embedded schedulers in workers
+  schedules:
+    # Security updates every 2 minutes (for testing - normally daily)
+    - name: security-updates
+      cron: "*/2 * * * *"
+      task: check-security-updates
+      targets:
+        - selector:
+            labels:
+              environment: development
+
+    # System cleanup every 5 minutes (for testing - normally weekly)
+    - name: system-cleanup
+      cron: "*/5 * * * *"
+      task: cleanup-unused-packages
+      targets:
+        - selector:
+            role: webserver
+        - selector:
+            role: database
+
+    # Package cache update every 3 minutes (for testing)
+    - name: cache-update
+      cron: "*/3 * * * *"
+      task: update-package-cache
+      targets:
+        - selector:
+            labels:
+              tier: web

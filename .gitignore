@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+*.egg-info
+
+# Virtual environment
+.venv/
+
+# Environment variables
+.env
+
+# Type checking
+.mypy_cache/

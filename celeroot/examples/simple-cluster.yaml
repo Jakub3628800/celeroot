@@ -1,0 +1,40 @@
+apiVersion: celeroot.io/v1
+kind: Cluster
+metadata:
+  name: simple
+  version: "1.0"
+
+spec:
+  # Simple Redis setup
+  redis:
+    replicas: 1
+    persistence: true
+
+  # Worker definitions
+  workers:
+    # Web server workers
+    - name: webservers
+      role: webserver
+      replicas: 2
+      queues:
+        - webserver_tasks
+        - system_tasks
+      tasks:
+        - apt-management
+        - nginx-config
+
+    # Database workers
+    - name: databases
+      role: database
+      replicas: 1
+      queues:
+        - database_tasks
+        - system_tasks
+      tasks:
+        - apt-management
+        - mysql-management
+
+  # Schedules managed via external cron
+  # Add to /etc/cron.d/celeroot-simple:
+  #   0 2 * * * celeroot task run check-security-updates --target role:all
+  #   0 3 * * 0 celeroot task run cleanup-unused-packages --target role:all

@@ -1,0 +1,17 @@
+# Celeryroot Simple Scheduling via System Cron
+# Place this in /etc/cron.d/celeroot-simple
+
+# Security updates daily at 2 AM
+0 2 * * * root /usr/local/bin/celeroot task run check-security-updates --target role:all
+
+# System cleanup weekly on Sunday at 3 AM
+0 3 * * 0 root /usr/local/bin/celeroot task run cleanup-unused-packages --target role:all
+
+# Health check every 4 hours
+0 */4 * * * root /usr/local/bin/celeroot task run health-check --target role:all
+
+# Database backup daily at 1 AM (only database workers)
+0 1 * * * root /usr/local/bin/celeroot task run backup-databases --target role:database
+
+# SSL certificate check daily at 4 AM (only web workers)
+0 4 * * * root /usr/local/bin/celeroot task run check-ssl-certs --target role:webserver
